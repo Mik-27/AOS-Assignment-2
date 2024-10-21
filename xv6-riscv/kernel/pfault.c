@@ -34,6 +34,7 @@ void init_psa_regions(void)
         psa_tracker[i] = false;
 }
 
+/* FIFO ALGORITHM */
 /* Evict heap page to disk when resident pages exceed limit */
 void evict_page_to_disk(struct proc* p) {
     /* Find free block */
@@ -41,10 +42,10 @@ void evict_page_to_disk(struct proc* p) {
     for (int i=0; i < PSASIZE; i+=4) {
         if (psa_tracker[i] == false) {
             blockno = i;
-            // for(int k=blockno;k<blockno+4;k++)
-            // {
-            //     psa_tracker[k]=true;
-            // }
+            for(int k=blockno;k<blockno+4;k++)
+            {
+                psa_tracker[k]=true;
+            }
             break;
         }
     }
@@ -52,6 +53,7 @@ void evict_page_to_disk(struct proc* p) {
     if(blockno == -1) {
         panic("Error: No PSA Block Available");
     }
+
     /* Find victim page using FIFO. */
     // int idx = -1;
     // uint64 earliestLoadTime =__INT64_MAX__;
@@ -62,39 +64,56 @@ void evict_page_to_disk(struct proc* p) {
     //     }
     // }
 
+
     // int idx = -1;
-    // uint64 earliestLoadTime =__INT64_MAX__;
-    // for(int i=0; i < MAXHEAP; i++){
-    //     if(p->heap_tracker[i].startblock == -1 && p->heap_tracker[i].last_load_time < earliestLoadTime){
+    // for (int i = 0; i < MAXHEAP; i++) {
+    //     if (p->heap_tracker[i].loaded == true && idx == -1) {
+    //         // printf("for loop");
     //         idx = i;
-    //         earliestLoadTime = p->heap_tracker[i].last_load_time;
     //     }
+    //     else if (p->heap_tracker[i].loaded == true && p->heap_tracker[i].last_load_time < p->heap_tracker[idx].last_load_time) {
+    //         // printf("for loop 2");
+    //         idx = i;
+    //     }
+    //     else {}
     // }
 
     int idx = -1;
+    uint64 least_recent_time = (uint64) -1; 
+    const uint64 WORKING_SET_WINDOW = 50;
+
     for (int i = 0; i < MAXHEAP; i++) {
-        if (p->heap_tracker[i].loaded == true && idx == -1) {
-            // printf("for loop");
-            idx = i;
+        if (p->heap_tracker[i].loaded) {
+            uint64 last_used = p->heap_tracker[i].last_load_time;
+            uint64 current_time = read_current_timestamp();
+
+            if (current_time - last_used > WORKING_SET_WINDOW) {
+                if (last_used < least_recent_time) {
+                    least_recent_time = last_used;
+                    idx = i;
+                }
+            }
         }
-        else if (p->heap_tracker[i].loaded == true && p->heap_tracker[i].last_load_time < p->heap_tracker[idx].last_load_time) {
-            // printf("for loop 2");
-            idx = i;
-        }
-        else {}
     }
-    printf("%d", idx);
+
+    // If no page was found outside the working set, use FIFO
+    if (idx == -1) {
+        for (int i = 0; i < MAXHEAP; i++) {
+            if (p->heap_tracker[i].loaded) {
+                if (idx == -1 || 
+                    p->heap_tracker[i].last_load_time < p->heap_tracker[idx].last_load_time) {
+                    idx = i;
+                }
+            }
+        }
+    }
+    // printf("%d", idx);
 
     /* Print statement. */
     print_evict_page(p->heap_tracker[idx].addr, blockno);
 
-    // if(idx == -1) {
-    //     panic("Error: FIFO not working properly");
-    // } else {
     p->heap_tracker[idx].startblock = blockno;
     p->heap_tracker[idx].loaded = false;
-    // }
-
 
     /* Read memory from the user to kernel memory first. */
     char *kernel_copy_page = kalloc();
@@ -107,24 +126,19 @@ void evict_page_to_disk(struct proc* p) {
         b = bread(1, PSASTART+(blockno+i));
         // Copy page contents to b.data using memmove.
         memmove(b->data, kernel_copy_page + (i*BSIZE), BSIZE);
-        // kernel_copy_page += BSIZE;
         bwrite(b);
         brelse(b);
         psa_tracker[blockno+i] = true;
     }
 
-    // p->heap_tracker[idx].loaded = true;
-
     /* Unmap swapped out page */
     uvmunmap(p->pagetable, p->heap_tracker[idx].addr, 1, 1);
 
     /* Update the resident heap tracker. */
-    // p->heap_tracker[idx].startblock = blockno;
-    // p->resident_heap_pages--;
-
     kfree(kernel_copy_page);
     p->resident_heap_pages--;
 }
+
 
 /* Retrieve faulted page from disk. */
 void retrieve_page_from_disk(struct proc* p, uint64 uvaddr) {
@@ -160,9 +174,6 @@ void retrieve_page_from_disk(struct proc* p, uint64 uvaddr) {
     /* Copy from temp kernel page to uvaddr (use copyout) */
     copyout(p->pagetable, uvaddr, kernel_copy_page, PGSIZE);
 
-    // p->heap_tracker[page_idx].loaded = false;
-    // p->heap_tracker[page_idx].startblock = -1;
-
     kfree(kernel_copy_page);
 }
 
@@ -178,7 +189,6 @@ void page_fault_handler(void)
 
 
     /* Find faulting address. */
-    // uint64 faulting_addr = r_stval() & (~(0xfff));
     uint64 faulting_addr = PGROUNDDOWN(r_stval());
 
     print_page_fault(p->name, faulting_addr);
@@ -216,53 +226,35 @@ void page_fault_handler(void)
         goto heap_handle;
     }
 
-    /* Similar to exec.c*/
-    // begin_op();
+    /* Similar to exec.c */
     if((ip = namei(p->name)) == 0){
-    //   end_op();
       return;
     }
-    // ilock(ip);
 
     if(readi(ip, 0, (uint64)&elf, 0, sizeof(elf)) != sizeof(elf))
         return;
-
-    // uint64 sz1,sz = 0;
-    // pagetable_t pagetable = p -> pagetable;
-
-    // if(elf.magic != ELF_MAGIC)
-    //     goto bad;
-
-    // if((pagetable = proc_pagetable(p)) == 0)
-    //     goto bad;
 
     // Load program into memory.
     for(int i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
         if(readi(ip, 0, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))
             return;
-        // if(ph.type != ELF_PROG_LOAD)
-        //     continue;
-        // if(ph.memsz < ph.filesz)
-        //     goto bad;
-        // if(ph.vaddr + ph.memsz < ph.vaddr)
-        //     goto bad;
-        // if(ph.vaddr % PGSIZE != 0)
-        //     goto bad;
+        if(ph.type != ELF_PROG_LOAD)
+            continue;
+        if(ph.memsz < ph.filesz)
+            return;
+        if(ph.vaddr + ph.memsz < ph.vaddr)
+            return;
+        if(ph.vaddr % PGSIZE != 0)
+            return;
         if (ph.vaddr <= faulting_addr && faulting_addr < (ph.vaddr + ph.memsz)) {  
             break;
         }
     }
     uvmalloc(p->pagetable, faulting_addr, faulting_addr + ph.memsz, flags2perm(ph.flags));
-    // sz = sz1;
     loadseg(p->pagetable, faulting_addr , ip, ph.off, ph.filesz);
     /* If it came here, it is a page from the program binary that we must load. */
     print_load_seg(faulting_addr, ph.off, ph.filesz);
     
-    // iunlockput(ip);
-    // end_op();
-    // ip = 0;
-
-
     /* Go to out, since the remainder of this code is for the heap. */
     goto out;
 
@@ -271,7 +263,6 @@ heap_handle:
     /* 2.4: Check if resident pages are more than heap pages. If yes, evict. */
     if (p->resident_heap_pages == MAXRESHEAP) {
         evict_page_to_disk(p);
-        // p->resident_heap_pages--;
     }
 
     /* 2.3: Map a heap page into the process' address space. (Hint: check growproc) */
@@ -279,21 +270,14 @@ heap_handle:
     if((sz_heap = uvmalloc(p->pagetable, faulting_addr, faulting_addr + PGSIZE, PTE_W) < 0))
         panic("uvmalloc error");
 
-    // if(load_from_disk) {
-    //     // p->sz = sz_heap;
-    //     retrieve_page_from_disk(p, faulting_addr);
-    // }
-
     /* 2.4: Heap page was swapped to disk previously. We must load it from disk. */
     if (load_from_disk) {
         retrieve_page_from_disk(p, faulting_addr);
     }
 
-    // if(index!=-1) {
-        /* 2.4: Update the last load time for the loaded heap page in p->heap_tracker. */
+    /* 2.4: Update the last load time for the loaded heap page in p->heap_tracker. */
     p->heap_tracker[index].last_load_time = read_current_timestamp();
     p->heap_tracker[index].loaded = true;
-    // }
 
     /* Track that another heap page has been brought into memory. */
     p->resident_heap_pages++;
@@ -302,10 +286,4 @@ out:
     /* Flush stale page table entries. This is important to always do. */
     sfence_vma();
     return;
-
-// bad:
-//     // printf("BAD");
-//     if(p->pagetable)
-//         proc_freepagetable(p->pagetable, p->sz);
-//     return;
 }

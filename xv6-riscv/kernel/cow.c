@@ -137,12 +137,6 @@ void copy_on_write() {
     pte_t *pte; 
     pte = walk(p->pagetable, faulting_addr, 0);
 
-    // uint64 *pa = PTE2PA(*pte);
-
-    // if(is_shmem(p->cow_group, pa)) {
-        // Allocate a new page 
-    // pte = walk(p->pagetable, faulting_addr, 0);
-
     char *pa = (char *)PTE2PA(*pte);
 
     // Copy contents from the shared page to the new page
@@ -154,9 +148,4 @@ void copy_on_write() {
     // Map the new page in the faulting process's page table with write permissions
     if(mappages(p->pagetable, faulting_addr, PGSIZE, (uint64)new_page, flags) != 0)
         kfree(new_page);
-
-    // print_copy_on_write(p, faulting_addr);
-
-    // kfree(new_page);
-    // }
 }
