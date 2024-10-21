@@ -284,14 +284,17 @@ growproc(int n)
   /* CSE 536: For simplicity, I've made all allocations at page-level. */
   n = PGROUNDUP(n);
 
+  if(p->ondemand == true) {
+    int npages = n/PGSIZE;
+    track_heap(p, p->sz, npages);
+    print_skip_heap_region(p->name, p->sz, npages);
+    p->sz = p->sz + n;
+    return 0;
+  }
+
   sz = p->sz;
   if(n > 0){
-    if(p->ondemand == true) {
-      int npages = n/PGSIZE;
-      track_heap(p, p->sz, npages);
-      print_skip_heap_region(p->name, p-sz, npages);
-      sz += n;
-    } else if((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
+    if((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
       return -1;
     }
   } else if(n < 0){
@@ -324,7 +327,7 @@ fork(int cow_enabled)
     
     if(!p->cow_enabled){
       p->cow_group = p->pid;
-      p->cow_enabled = true;
+      p->cow_enabled = 1;
       
       cow_group_init(p->cow_group);
       incr_cow_group_count(p->cow_group);

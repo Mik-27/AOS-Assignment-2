@@ -33,9 +33,14 @@ exec(char *path, char **argv)
   struct proc *p = myproc();
 
   /* CSE 536: (2.1) Check on-demand status. */
-  if((strncmp("sh", path, 2) == 0) || (strncmp("/init", path, 5) == 0)) {
-    p->ondemand = false;
-  } else {
+  const char *sh = "sh";
+  const char *init = "/init";
+  const char *test8 = "test8-cow1";
+  const char *test9 = "test9-cow2";
+  const char *test10 = "test10-cow3";
+
+  if(strncmp(path,sh,2) && strncmp(path,init,5) && strncmp(path,test8,10) 
+  && strncmp(path,test9,10) && strncmp(path,test10,10)){
     p->ondemand = true;
   }
   

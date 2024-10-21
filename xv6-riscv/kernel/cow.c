@@ -109,10 +109,10 @@ int uvmcopy_cow(pagetable_t old, pagetable_t new, uint64 sz) {
     }
 
     for(i = 0; i < sz; i += PGSIZE){
-        // if((pte = walk(old, i, 0)) == 0)
-        //     panic("uvmcopy_cow: pte should exist");
-        // if((*pte & PTE_V) == 0)
-        //     panic("uvmcopy_cow: page not present");
+        if((pte = walk(old, i, 0)) == 0)
+            panic("uvmcopy_cow: pte should exist");
+        if((*pte & PTE_V) == 0)
+            panic("uvmcopy_cow: page not present");
         pa = PTE2PA(*pte);
         flags = PTE_FLAGS(*pte) & (~PTE_W);
 
@@ -128,30 +128,35 @@ int uvmcopy_cow(pagetable_t old, pagetable_t new, uint64 sz) {
 void copy_on_write() {
     /* CSE 536: (2.6.2) Handling Copy-on-write */
     struct proc *p = myproc();
-	// uint64 faulting_addr = PGROUNDDOWN(r_stval());
-	uint64 faulting_addr = r_stval() & (~(0xfff));
+	uint64 faulting_addr = PGROUNDDOWN(r_stval());
+	// uint64 faulting_addr = r_stval() & (~(0xfff));
+    print_copy_on_write(p, faulting_addr);
 
-    pte_t *pte;
+    char* new_page = kalloc();
+
+    pte_t *pte; 
     pte = walk(p->pagetable, faulting_addr, 0);
 
-    uint64 *pa = PTE2PA(*pte);
+    // uint64 *pa = PTE2PA(*pte);
 
-    if(is_shmem(p->cow_group, pa)) {
+    // if(is_shmem(p->cow_group, pa)) {
         // Allocate a new page 
-        char *new_page = kalloc();
+    // pte = walk(p->pagetable, faulting_addr, 0);
 
-        // Copy contents from the shared page to the new page
-        memmove(new_page, (char*)pa, PGSIZE);
-        int flags = PTE_FLAGS(*pte) | PTE_W;
+    char *pa = (char *)PTE2PA(*pte);
 
-        uvmunmap(p->pagetable, faulting_addr, 1, 0);
-        
-        // Map the new page in the faulting process's page table with write permissions
-        if(mappages(p->pagetable, faulting_addr, PGSIZE, (uint64)pa, flags) != 0)
-            kfree(new_page);
+    // Copy contents from the shared page to the new page
+    memmove(new_page, (char*)pa, PGSIZE);
+    int flags = PTE_FLAGS(*pte) | PTE_W;
 
-        print_copy_on_write(p, faulting_addr);
-
+    uvmunmap(p->pagetable, faulting_addr, 1, 0);
+    
+    // Map the new page in the faulting process's page table with write permissions
+    if(mappages(p->pagetable, faulting_addr, PGSIZE, (uint64)new_page, flags) != 0)
         kfree(new_page);
-    }
+
+    // print_copy_on_write(p, faulting_addr);
+
+    // kfree(new_page);
+    // }
 }

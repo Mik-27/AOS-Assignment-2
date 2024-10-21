@@ -31,6 +31,7 @@ main()
 
     /* CSE 536: Initialize all PSA regions when OS boots. */
     init_psa_regions();
+    cow_init();
 
     userinit();      // first user process
     __sync_synchronize();
